@@ -16,6 +16,7 @@ from schemas.models import (
     VolumesContext,
 )
 from services.providers.hetzner.api import fetch_volumes, find_persistent_data_volumes
+from services.secrets import secrets_available_for_reattach
 from services.storage import append_log, load_volumes_inventory, save_volumes_inventory
 
 
@@ -269,6 +270,12 @@ def validate_reattach(spec: InstanceSpec, inventory: VolumeInventory | None = No
     if not selected_any:
         errors.append("Reattach mode selected but no volumes are enabled for reattach")
 
+    if selected_any and not secrets_available_for_reattach(spec.id):
+        errors.append(
+            "Reattach requires saved secrets from the original provision — "
+            "use the same instance or import your secrets bundle before recreating"
+        )
+
     return errors
 
 
@@ -331,6 +338,7 @@ def build_volumes_context(spec: InstanceSpec) -> VolumesContext:
     return VolumesContext(
         inventory=inventory,
         reattach_eligible=any_eligible,
+        secrets_available=secrets_available_for_reattach(spec.id),
         entries=entries,
     )
 

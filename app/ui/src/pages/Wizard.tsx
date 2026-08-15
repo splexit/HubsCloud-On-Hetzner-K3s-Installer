@@ -46,6 +46,7 @@ type VolumeContextEntry = {
 
 type VolumesContext = {
   reattach_eligible: boolean;
+  secrets_available: boolean;
   entries: VolumeContextEntry[];
 };
 
@@ -140,11 +141,15 @@ function formatTypeLabel(t: ServerType) {
 export function WizardPage({ instanceId }: { instanceId: string }) {
   const nav = useNavigate();
   const [searchParams] = useSearchParams();
-  const initialStep = Math.min(Math.max(Number(searchParams.get("step") || "0"), 0), STEPS.length - 1);
+  const recreateIntent = searchParams.get("recreate") === "1";
+  const initialStep = recreateIntent
+    ? STEPS.length - 1
+    : Math.min(Math.max(Number(searchParams.get("step") || "0"), 0), STEPS.length - 1);
   const [step, setStep] = useState(initialStep);
   const [spec, setSpec] = useState<Spec>({});
   const specRef = useRef<Spec>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoReattachAppliedRef = useRef(false);
   const [tokenOk, setTokenOk] = useState<boolean | null>(null);
   const [tokenMsg, setTokenMsg] = useState("");
   const [tokenValidating, setTokenValidating] = useState(false);
@@ -240,12 +245,38 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
   }, [instanceId]);
 
   useEffect(() => {
-    if ((step === 2 || step === 6) && tokenOk === true) {
+    if ((step === 2 || step === 6) && (tokenOk === true || recreateIntent)) {
       void loadVolumes();
     }
-  }, [step, tokenOk, loadVolumes]);
+  }, [step, tokenOk, loadVolumes, recreateIntent]);
+
+  useEffect(() => {
+    if (!recreateIntent || tokenOk !== null) return;
+    const token = String(spec.hetzner_api_token || "").trim();
+    if (!token) return;
+    void validateToken();
+  }, [recreateIntent, spec.hetzner_api_token, tokenOk]);
+
+  useEffect(() => {
+    if (!volumesCtx?.reattach_eligible || autoReattachAppliedRef.current) return;
+    const policy = getReattachPolicy(specRef.current);
+    if (policy.mode !== "provision_new") return;
+    if (!volumesCtx.secrets_available) return;
+    autoReattachAppliedRef.current = true;
+    patchAndSave({
+      volume_reattach: {
+        mode: "reattach_saved",
+        volumes: policy.volumes,
+      },
+    });
+  }, [volumesCtx]);
 
   const reattachPolicy = getReattachPolicy(spec);
+  const isRecreateFlow =
+    recreateIntent ||
+    (volumesCtx?.reattach_eligible === true && reattachPolicy.mode === "reattach_saved");
+  const reattachBlocked =
+    reattachPolicy.mode === "reattach_saved" && volumesCtx?.secrets_available === false;
 
   const setReattachMode = (enabled: boolean) => {
     patchAndSave({
@@ -275,10 +306,11 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
   };
 
   useEffect(() => {
+    if (recreateIntent && step === STEPS.length - 1) return;
     if (step > 0 && tokenOk !== true) {
       setStep(0);
     }
-  }, [step, tokenOk]);
+  }, [step, tokenOk, recreateIntent]);
 
   const saveSpec = useCallback(
     async (next?: Spec) => {
@@ -419,6 +451,7 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
   }, [step, spec, tokenOk, tokenValidating, resolvedTypes, serverTypes.length]);
 
   const startCreate = async () => {
+    if (reattachBlocked) return;
     await saveSpec();
     await api(`/instances/${instanceId}/create`, { method: "POST" });
     nav(`/instances/${instanceId}`);
@@ -679,10 +712,17 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
                     Saved volume IDs from a previous run of this instance were found. Reattach them instead of
                     provisioning empty disks.
                   </p>
+                  {!volumesCtx.secrets_available && (
+                    <p className="bad-text" style={{ marginTop: 0 }}>
+                      Saved secrets are missing — reattach requires the same secrets bundle from the original
+                      provision. Import it or use the same instance data before recreating.
+                    </p>
+                  )}
                   <label className="field" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
                     <input
                       type="checkbox"
                       checked={reattachPolicy.mode === "reattach_saved"}
+                      disabled={!volumesCtx.secrets_available}
                       onChange={(e) => setReattachMode(e.target.checked)}
                     />
                     <span>Reattach saved volumes</span>
@@ -994,7 +1034,13 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
 
         {step === 6 && (
           <>
-            <h2>Review</h2>
+            <h2>{isRecreateFlow ? "Review & recreate" : "Review"}</h2>
+            {isRecreateFlow && (
+              <p className="muted" style={{ marginTop: 0 }}>
+                Infrastructure was destroyed; saved secrets and Hetzner block volumes will be reused. A new load
+                balancer and servers will be created — update DNS if the LB IP changes.
+              </p>
+            )}
             <div className="review-topology">
               <ClusterTopology />
             </div>
@@ -1036,9 +1082,24 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
                 </ul>
               </div>
             </div>
-            <p className="muted">Create cluster will call Hetzner and run ~30–60+ minutes unattended.</p>
-            <button type="button" className="btn btn-primary" onClick={() => setConfirmOpen(true)}>
-              Create cluster
+            {reattachBlocked && (
+              <p className="bad-text">
+                Cannot recreate with saved volumes — secrets.json is missing. Use the same instance data directory or
+                restore from your secrets ZIP.
+              </p>
+            )}
+            <p className="muted">
+              {isRecreateFlow
+                ? "Recreate cluster will rebuild servers and rebind saved volumes (~30–60+ minutes)."
+                : "Create cluster will call Hetzner and run ~30–60+ minutes unattended."}
+            </p>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={reattachBlocked}
+              onClick={() => setConfirmOpen(true)}
+            >
+              {isRecreateFlow ? "Recreate cluster" : "Create cluster"}
             </button>
           </>
         )}
@@ -1101,17 +1162,26 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
       {confirmOpen && (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
           <div className="modal-card">
-            <h3 id="confirm-title">Start provisioning?</h3>
+            <h3 id="confirm-title">{isRecreateFlow ? "Recreate cluster?" : "Start provisioning?"}</h3>
             <p className="muted" style={{ marginTop: 0 }}>
               {String(spec.hub_domain)} · {String(spec.location)} · {resolvedTypes.master}/{resolvedTypes.web}/{resolvedTypes.webrtc}
             </p>
-            <p className="muted" style={{ marginBottom: 0 }}>
-              This creates Hetzner Cloud servers, a load balancer, and volumes on your account. Those resources bill
-              continuously until you delete them in the Hetzner Cloud Console.
-            </p>
+            {isRecreateFlow ? (
+              <p className="muted" style={{ marginBottom: 0 }}>
+                Rebuilds Hetzner servers and Kubernetes, then rebinds saved block volumes (PostgreSQL / Reticulum
+                data). Existing CSI volumes and any leftover load balancer continue billing until deleted in Console.
+              </p>
+            ) : (
+              <p className="muted" style={{ marginBottom: 0 }}>
+                This creates Hetzner Cloud servers, a load balancer, and volumes on your account. Those resources bill
+                continuously until you delete them in the Hetzner Cloud Console.
+              </p>
+            )}
             <div className="modal-actions">
               <button type="button" className="btn btn-outline" onClick={() => setConfirmOpen(false)}>Cancel</button>
-              <button type="button" className="btn btn-primary" onClick={() => { setConfirmOpen(false); void startCreate(); }}>Start provisioning</button>
+              <button type="button" className="btn btn-primary" onClick={() => { setConfirmOpen(false); void startCreate(); }}>
+                {isRecreateFlow ? "Start recreate" : "Start provisioning"}
+              </button>
             </div>
           </div>
         </div>

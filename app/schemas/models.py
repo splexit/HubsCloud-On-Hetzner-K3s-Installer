@@ -102,6 +102,7 @@ class VolumeContextEntry(BaseModel):
 class VolumesContext(BaseModel):
     inventory: VolumeInventory
     reattach_eligible: bool = False
+    secrets_available: bool = False
     entries: list[VolumeContextEntry] = Field(default_factory=list)
 
 
@@ -214,9 +215,17 @@ class InstanceStatus(BaseModel):
 class InstanceSummary(BaseModel):
     id: str
     hub_domain: str
+    location: str = ""
     state: str
     phase: str
+    message: str = ""
     created_at: str
+    secrets_available: bool = False
+    saved_volumes_count: int = 0
+    reattach_eligible: bool = False
+    can_recreate: bool = False
+    infrastructure_active: bool = False
+    display_status: str = "unknown"
 
 
 class ResourcesSnapshot(BaseModel):

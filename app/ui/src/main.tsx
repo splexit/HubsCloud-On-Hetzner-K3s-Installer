@@ -6,7 +6,7 @@ import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
 import "@fontsource/jetbrains-mono/400.css";
 import "./styles/global.css";
-import { Shell, LandingPage, ManageStub } from "./pages/Landing";
+import { Shell, LandingPage } from "./pages/Landing";
 import { WizardPage } from "./pages/Wizard";
 import { ProgressPage } from "./pages/Progress";
 import { DocsPage } from "./pages/Docs";
@@ -42,7 +42,7 @@ function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/docs" element={<DocsPage />} />
-        <Route path="/manage" element={<ManageStub />} />
+        <Route path="/manage" element={<Navigate to="/" replace />} />
         <Route path="/instances/new" element={<NewInstance />} />
         <Route path="/instances/:id/setup" element={<WizardRoute />} />
         <Route path="/instances/:id" element={<ProgressRoute />} />

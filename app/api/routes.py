@@ -31,6 +31,7 @@ from schemas.models import (
     HetznerAudit,
     InstanceSpec,
     InstanceStatus,
+    InstanceSummary,
     VolumesContext,
 )
 from services.cluster_join import get_cluster_join_status
@@ -45,6 +46,7 @@ from renderers import render_all
 from services.secrets import generate_secrets, write_ssh_keypair
 from services.storage import (
     append_log,
+    delete_instance_data,
     list_instances,
     load_secrets,
     load_spec,
@@ -69,6 +71,10 @@ class DestroyBody(BaseModel):
     confirm: bool = False
 
 
+class DeleteInstanceBody(BaseModel):
+    confirm: bool = False
+
+
 @router.get("/health")
 def health():
     return {"status": "ok"}
@@ -84,7 +90,7 @@ def installer_docs():
     }
 
 
-@router.get("/instances")
+@router.get("/instances", response_model=list[InstanceSummary])
 def get_instances():
     return list_instances()
 
@@ -95,6 +101,51 @@ def create_instance():
     save_spec(spec)
     save_status(spec.id, InstanceStatus())
     return spec
+
+
+@router.post("/instances/{instance_id}/delete-config")
+def delete_instance_config(instance_id: str, body: DeleteInstanceBody):
+    if not body.confirm:
+        raise HTTPException(400, "Set confirm=true to delete this saved configuration")
+    try:
+        spec = load_spec(instance_id)
+    except Exception:
+        raise HTTPException(404, "Instance not found") from None
+
+    status = load_status(instance_id)
+    if status.state == "running":
+        raise HTTPException(409, "Cannot delete while provisioning or destroy is running")
+
+    warnings: list[str] = []
+    if spec.hetzner_api_token:
+        try:
+            audit = audit_hetzner_cluster(spec.hetzner_api_token)
+            if audit.get("servers"):
+                raise HTTPException(
+                    409,
+                    "Hetzner servers still exist for this configuration — "
+                    "run Destroy cluster infrastructure on the progress page first",
+                )
+            if audit.get("has_billable_leftovers"):
+                vol_count = len(audit.get("volumes") or [])
+                lb_count = len(audit.get("load_balancers") or [])
+                parts = []
+                if vol_count:
+                    parts.append(f"{vol_count} block volume(s)")
+                if lb_count:
+                    parts.append(f"{lb_count} load balancer(s)")
+                if parts:
+                    warnings.append(
+                        f"Hetzner still billing {' and '.join(parts)} — deleting this config removes "
+                        "volume ID mapping from ./data (keep your secrets ZIP if you may recreate later)"
+                    )
+        except HTTPException:
+            raise
+        except Exception as e:
+            warnings.append(f"Could not verify Hetzner state: {e}")
+
+    delete_instance_data(instance_id)
+    return {"deleted": True, "id": instance_id, "warnings": warnings}
 
 
 @router.get("/instances/{instance_id}")

@@ -112,6 +112,7 @@ type VolumeInventoryEntry = {
 
 type VolumesContext = {
   reattach_eligible: boolean;
+  secrets_available: boolean;
   inventory: { volumes: VolumeInventoryEntry[]; updated_at?: string };
   entries: {
     pvc_name: string;
@@ -480,7 +481,18 @@ export function ProgressPage({ instanceId }: { instanceId: string }) {
         ? "Failed"
         : isRunning
           ? (status.step <= 4 ? "Building cluster" : "Installing workloads")
-          : "Not started";
+          : volumesCtx?.reattach_eligible && volumesCtx.secrets_available && hetznerAudit?.clean
+            ? "Ready to recreate"
+            : "Not started";
+
+  const recreateReady =
+    !isRunning &&
+    status?.state === "pending" &&
+    status?.phase === "idle" &&
+    Boolean(volumesCtx?.reattach_eligible && volumesCtx.secrets_available) &&
+    Boolean(hetznerAudit?.clean);
+
+  const recreateLink = `/instances/${instanceId}/setup?recreate=1`;
 
   const fixLink =
     status?.intervention === "server_types"
@@ -555,6 +567,28 @@ export function ProgressPage({ instanceId }: { instanceId: string }) {
         })}
       </div>
       </div>
+
+      {recreateReady && (
+        <section className="panel recreate-banner">
+          <h2 style={{ marginBottom: 8 }}>Recreate cluster</h2>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Infrastructure is torn down but saved secrets and Hetzner block volumes are available. Recreate rebuilds
+            servers and Kubernetes, rebinds your database and upload volumes, then redeploys HCCE.
+          </p>
+          <ul className="topo-list" style={{ margin: "12px 0", paddingLeft: 0, listStyle: "none" }}>
+            {(volumesCtx?.entries || [])
+              .filter((e) => e.reattach_eligible)
+              .map((entry) => (
+                <li key={entry.pvc_name} className="muted" style={{ fontSize: 13, marginBottom: 4 }}>
+                  {PVC_LABELS[entry.pvc_name] || entry.pvc_name} → Hetzner #{entry.hetzner_volume_id}
+                </li>
+              ))}
+          </ul>
+          <Link to={recreateLink} className="btn btn-primary" style={{ textDecoration: "none", marginTop: 8 }}>
+            Recreate cluster
+          </Link>
+        </section>
+      )}
 
       {status?.state === "failed" && (
         <div className="panel failure-banner">
@@ -948,8 +982,12 @@ export function ProgressPage({ instanceId }: { instanceId: string }) {
         <section className="panel" style={{ marginTop: 24 }}>
           <h2 style={{ marginBottom: 8 }}>Volume inventory</h2>
           <p className="muted" style={{ marginTop: 0 }}>
-            PVC → Hetzner volume mapping for this instance. Use{" "}
-            <Link to={`/instances/${instanceId}/setup?step=2`}>Machines &amp; SSH</Link> to reattach after destroy.
+            PVC → Hetzner volume mapping for this instance.
+            {recreateReady ? (
+              <> Use <Link to={recreateLink}>Recreate cluster</Link> to rebind these volumes.</>
+            ) : (
+              <> Use <Link to={`/instances/${instanceId}/setup?step=2`}>Machines &amp; SSH</Link> to reattach after destroy.</>
+            )}
           </p>
           <table className="data-table" style={{ marginTop: 8 }}>
             <thead>

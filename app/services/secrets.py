@@ -10,6 +10,16 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from schemas.models import InstanceSpec
 
+# Required for HCCE + Postgres to match data on reattached CSI volumes.
+REATTACH_SECRET_KEYS = ("db_password", "perms_key", "pgrst_jwt_secret", "k3s_token", "node_cookie", "guardian_key", "phx_key")
+
+
+def secrets_available_for_reattach(instance_id: str) -> bool:
+    from services.storage import load_secrets
+
+    secrets = load_secrets(instance_id)
+    return bool(secrets) and all(secrets.get(k) for k in REATTACH_SECRET_KEYS)
+
 
 def generate_secrets(hub_domain: str = "") -> dict[str, str]:
     perms_key, pgrst_jwt_secret = generate_rsa_material()

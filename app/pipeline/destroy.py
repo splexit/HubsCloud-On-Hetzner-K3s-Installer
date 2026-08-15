@@ -135,9 +135,20 @@ def destroy_cluster(instance_id: str) -> dict:
         )
 
     hetzner_vol_ids = [int(v["id"]) for v in (inventory.get("persistent_volumes") or []) if v.get("id")]
-    from services.volume_inventory import snapshot_on_destroy
+    from services.secrets import secrets_available_for_reattach
+    from services.volume_inventory import build_volumes_context, snapshot_on_destroy
 
     snapshot_on_destroy(instance_id, spec, hetzner_vol_ids or None)
+
+    ctx = build_volumes_context(spec)
+    if ctx.reattach_eligible and secrets_available_for_reattach(instance_id):
+        if spec.volume_reattach.mode != "reattach_saved":
+            spec.volume_reattach.mode = "reattach_saved"
+            save_spec(spec)
+            append_log(
+                instance_id,
+                "Reattach saved volumes enabled by default — recreate will bind existing Hetzner block volumes",
+            )
 
     _clear_local_cluster_artifacts(instance_id, spec)
 

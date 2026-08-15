@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { ClusterTopology } from "../components/ClusterTopology";
+import { SavedInstances } from "../components/SavedInstances";
 import {
   LandingHeroBrand,
   InstallerTopBrand,
@@ -21,7 +22,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </div>
         <div className="topbar-end">
           <ResourceLinkRow className="topbar-hf-links" />
-          <span className="topbar-meta">127.0.0.1 · v1.1</span>
+          <span className="topbar-meta">127.0.0.1 · v1.2</span>
         </div>
       </header>
       <main className="main">{children}</main>
@@ -44,16 +45,14 @@ export function LandingPage() {
     <div className="landing-wrap">
       <div className="landing-cluster">
         <LandingHeroBrand />
+        <SavedInstances />
         <div className="landing-actions">
-          <Link to="/instances/new" className="btn btn-primary" style={{ textDecoration: "none" }}>
+          <Link to="/instances/new" className="btn btn-outline" style={{ textDecoration: "none" }}>
             Create new instance
-          </Link>
-          <Link to="/manage" className="btn btn-outline" style={{ textDecoration: "none" }}>
-            Manage existing
           </Link>
         </div>
         <div className="landing-topology">
-          <ClusterTopology compact />
+          <ClusterTopology preview expandable />
         </div>
         <p className="landing-attribution muted">
           Hubs is open source software maintained by the{" "}
@@ -63,18 +62,6 @@ export function LandingPage() {
           .
         </p>
       </div>
-    </div>
-  );
-}
-
-export function ManageStub() {
-  return (
-    <div className="manage-stub">
-      <h2>Coming soon</h2>
-      <p className="muted">Management of existing clusters is not available in v1.</p>
-      <Link to="/" className="btn btn-outline" style={{ marginTop: 24, textDecoration: "none" }}>
-        Back to landing
-      </Link>
     </div>
   );
 }

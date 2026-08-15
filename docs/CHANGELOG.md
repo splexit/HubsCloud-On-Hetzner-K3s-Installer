@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.2.0] — 2026-08-15
+
+Cluster recreate workflow, saved-instance picker on the landing page, honest infrastructure status, local config cleanup, and a simpler architecture diagram.
+
+### Added
+
+- **Recreate cluster flow** — after destroy, progress page shows a **Recreate cluster** banner; wizard
+  review uses **Recreate** copy and `?recreate=1` opens review with reattach pre-checked. Destroy
+  auto-enables `volume_reattach.mode=reattach_saved` when saved volumes and secrets exist.
+- **Reattach secrets guard** — reprovision with saved volumes fails fast if `secrets.json` is missing;
+  wizard and API surface `secrets_available` on volume context.
+- **Saved configurations on landing** — home page lists `./data` instances by hub domain (persists across
+  container restarts). Primary action **Recreate** or **Open** goes to the instance progress page — no
+  separate manage route.
+- **`GET /api/instances` summary** — each entry includes live Hetzner infrastructure check,
+  `display_status`, saved volume count, and `can_recreate`.
+- **Delete saved configuration** — `POST /api/instances/{id}/delete-config` removes local spec/secrets/logs
+  under `./data/instances/<id>/` (not Hetzner volumes). Blocked while servers still exist.
+- **Architecture diagram preview** — landing page shows a compact traffic-flow + three-node preview;
+  **Show details** expands the full workload/PVC diagram. Visible on mobile (stacked layout).
+
+### Changed
+
+- Landing **Create new instance** is secondary; saved hubs are the primary entry after a restart.
+- `/manage` redirects to `/` (removed “Coming soon” stub).
+- Instance list status reflects **live Hetzner servers**, not stale `status.json` — destroyed clusters
+  show **Stopped · volumes saved** instead of **Running**.
+- [VOLUME-RECOVERY.md](VOLUME-RECOVERY.md) updated for progress-page recreate path.
+
+### Fixed
+
+- Stale **Running** label on the landing list when nodes were destroyed but `status.json` still said
+  `succeeded`.
+
+---
+
 ## [1.1.0] — 2026-08-06
 
 Release of provisioning fixes, volume recovery, UI/branding refresh, and licensing/disclosure documentation.
