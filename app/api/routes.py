@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -26,14 +26,24 @@ from pipeline.runner import (
 from pipeline.cluster_repair import repair_cluster_join
 from schemas.models import (
     CLUSTER_SIZE_RECOMMENDATIONS,
+    AssetsBackupEntry,
+    AssetsBackupsList,
     ClusterJoinStatus,
+    DbBackupsList,
+    DbBackupEntry,
     HealthSummary,
     HetznerAudit,
     InstanceSpec,
     InstanceStatus,
     InstanceSummary,
+    RestoreBundleManifest,
+    RestoreBundleStatus,
     VolumesContext,
 )
+from services.assets_backups import AssetsBackupError, list_assets_backups, resolve_assets_backup, run_assets_backup_now
+from services.db_backups import DbBackupError, fetch_backup_for_download, list_db_backups, run_db_backup_now
+from services.restore_bundle import build_restore_bundle_zip, create_restore_bundle
+from services.restore_bundle_paths import has_restore_bundle, load_restore_bundle_manifest
 from services.cluster_join import get_cluster_join_status
 from services.hetzner import audit_hetzner_cluster
 from services.hetzner import (
@@ -69,6 +79,16 @@ class HardenFirewallBody(BaseModel):
 
 class DestroyBody(BaseModel):
     confirm: bool = False
+    save_restore_bundle: bool = False
+    backup_latest: bool = True
+    backup_date: str | None = None
+    backup_filename: str | None = None
+
+
+class RestoreBundleCreateBody(BaseModel):
+    latest: bool = True
+    backup_date: str | None = None
+    backup_filename: str | None = None
 
 
 class DeleteInstanceBody(BaseModel):
@@ -404,10 +424,26 @@ async def _repair_cluster_join_async(instance_id: str):
         raise
 
 
-async def _destroy_async(instance_id: str):
+async def _destroy_async(
+    instance_id: str,
+    *,
+    save_restore_bundle: bool = False,
+    backup_latest: bool = True,
+    backup_date: str | None = None,
+    backup_filename: str | None = None,
+):
     try:
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, destroy_cluster, instance_id)
+        await loop.run_in_executor(
+            None,
+            lambda: destroy_cluster(
+                instance_id,
+                save_restore_bundle=save_restore_bundle,
+                backup_latest=backup_latest,
+                backup_date=backup_date,
+                backup_filename=backup_filename,
+            ),
+        )
     except Exception as e:
         append_log(instance_id, f"Destroy exited with error: {e}")
         status = load_status(instance_id)
@@ -460,7 +496,14 @@ def destroy_cluster_endpoint(instance_id: str, body: DestroyBody, background_tas
         instance_id,
         InstanceStatus(phase="destroy", step=0, state="running", message="Destroying Hetzner resources"),
     )
-    background_tasks.add_task(_destroy_async, instance_id)
+    background_tasks.add_task(
+        _destroy_async,
+        instance_id,
+        save_restore_bundle=body.save_restore_bundle,
+        backup_latest=body.backup_latest,
+        backup_date=body.backup_date,
+        backup_filename=body.backup_filename,
+    )
     return {"started": True}
 
 
@@ -574,6 +617,115 @@ def secrets_zip(instance_id: str, progress_url: str | None = None):
         content=data,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="hubs-secrets-{instance_id[:8]}.zip"'},
+    )
+
+
+@router.get("/instances/{instance_id}/db-backups", response_model=DbBackupsList)
+def db_backups_list(instance_id: str) -> DbBackupsList:
+    try:
+        return list_db_backups(instance_id)
+    except DbBackupError as e:
+        raise HTTPException(e.status_code, str(e)) from e
+
+
+@router.post("/instances/{instance_id}/db-backups/run", response_model=DbBackupEntry)
+def db_backup_run(instance_id: str) -> DbBackupEntry:
+    try:
+        return run_db_backup_now(instance_id)
+    except DbBackupError as e:
+        raise HTTPException(e.status_code, str(e)) from e
+
+
+@router.get("/instances/{instance_id}/assets-backups", response_model=AssetsBackupsList)
+def assets_backups_list(instance_id: str) -> AssetsBackupsList:
+    return list_assets_backups(instance_id)
+
+
+@router.post("/instances/{instance_id}/assets-backups/run", response_model=AssetsBackupEntry)
+def assets_backup_run(instance_id: str) -> AssetsBackupEntry:
+    try:
+        return run_assets_backup_now(instance_id)
+    except AssetsBackupError as e:
+        raise HTTPException(e.status_code, str(e)) from e
+
+
+@router.get("/instances/{instance_id}/assets-backups/download")
+def assets_backup_download(
+    instance_id: str,
+    latest: bool = Query(False),
+    filename: str | None = Query(None),
+):
+    try:
+        entry, path = resolve_assets_backup(instance_id, latest=latest, filename=filename)
+    except AssetsBackupError as e:
+        raise HTTPException(e.status_code, str(e)) from e
+    return FileResponse(
+        path,
+        filename=entry.filename,
+        media_type="application/gzip",
+    )
+
+
+@router.get("/instances/{instance_id}/db-backups/download")
+def db_backup_download(
+    instance_id: str,
+    background_tasks: BackgroundTasks,
+    latest: bool = Query(False),
+    date: str | None = Query(None, alias="date"),
+    filename: str | None = Query(None),
+):
+    try:
+        entry, path = fetch_backup_for_download(
+            instance_id,
+            latest=latest,
+            backup_date=date,
+            filename=filename,
+        )
+    except DbBackupError as e:
+        raise HTTPException(e.status_code, str(e)) from e
+
+    background_tasks.add_task(path.unlink, missing_ok=True)
+    return FileResponse(
+        path,
+        filename=entry.filename,
+        media_type="application/gzip",
+    )
+
+
+@router.get("/instances/{instance_id}/restore-bundle", response_model=RestoreBundleStatus)
+def restore_bundle_status(instance_id: str) -> RestoreBundleStatus:
+    manifest = load_restore_bundle_manifest(instance_id)
+    if not manifest or not has_restore_bundle(instance_id):
+        return RestoreBundleStatus(
+            present=False,
+            message="No local restore bundle — save one before destroy or from database backups.",
+        )
+    return RestoreBundleStatus(present=True, manifest=manifest)
+
+
+@router.post("/instances/{instance_id}/restore-bundle", response_model=RestoreBundleManifest)
+def restore_bundle_create(instance_id: str, body: RestoreBundleCreateBody) -> RestoreBundleManifest:
+    try:
+        return create_restore_bundle(
+            instance_id,
+            latest=body.latest,
+            backup_date=body.backup_date,
+            backup_filename=body.backup_filename,
+        )
+    except DbBackupError as e:
+        raise HTTPException(e.status_code, str(e)) from e
+
+
+@router.get("/instances/{instance_id}/restore-bundle.zip")
+def restore_bundle_download(instance_id: str):
+    try:
+        data = build_restore_bundle_zip(instance_id)
+    except DbBackupError as e:
+        raise HTTPException(e.status_code, str(e)) from e
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="hubs-restore-bundle-{instance_id[:8]}.zip"'},
     )
 
 

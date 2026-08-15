@@ -150,7 +150,8 @@ metadata:
   namespace: hcce
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-issuer-prod
-    haproxy.org/ssl-redirect: "true"
+    # No ssl-redirect here: hub host has path / → HTTP-01 ACME must stay on port 80.
+    # Global HAProxy ssl-redirect is also off (see haproxy-config.yaml).
     haproxy.org/response-set-header: |
       access-control-allow-origin "https://{{ hub_domain }}"
     haproxy.org/path-rewrite: /api-internal(.*) /_drop_
@@ -250,7 +251,9 @@ metadata:
   namespace: hcce
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-issuer-prod
-    haproxy.org/ssl-redirect: "true"
+    # No ssl-redirect: stream host has path / and dialog runs hostNetwork on the WebRTC
+    # node — HAProxy terminates TLS and proxies to the dialog Service (4443). ACME HTTP-01
+    # must reach cert-manager on port 80 without redirecting to the dialog backend.
     haproxy.org/server-ssl: "true"
     haproxy.org/load-balance: "url_param roomId"
 spec:

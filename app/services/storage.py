@@ -8,6 +8,7 @@ from pathlib import Path
 from config import DATA_DIR, instance_dir
 from schemas.models import InstanceSpec, InstanceStatus, InstanceSummary, VolumeInventory
 from services.providers.registry import get_cloud_provider
+from services.restore_bundle_paths import has_restore_bundle
 from services.secrets import secrets_available_for_reattach
 
 
@@ -108,7 +109,7 @@ def _compute_display_status(
         return "failed"
     if infrastructure_active:
         return "running"
-    if can_recreate and _saved_volumes_count(spec.id) > 0:
+    if can_recreate and (_saved_volumes_count(spec.id) > 0 or has_restore_bundle(spec.id)):
         return "ready_to_recreate"
     if can_recreate:
         return "stopped"
@@ -185,6 +186,7 @@ def list_instances() -> list[InstanceSummary]:
                 can_recreate=can_recreate,
                 infrastructure_active=infrastructure_active,
                 display_status=display_status,
+                has_restore_bundle=has_restore_bundle(spec.id),
             )
         )
     results.sort(key=lambda s: s.created_at, reverse=True)

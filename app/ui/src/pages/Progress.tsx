@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { DbBackupsPanel } from "../components/DbBackupsPanel";
+import { AssetsBackupsPanel } from "../components/AssetsBackupsPanel";
+import { DestroyClusterModal } from "../components/DestroyClusterModal";
+import { RestoreBundlePanel } from "../components/RestoreBundlePanel";
 import { api, downloadUrl } from "../api";
 
 const STEPS = [
@@ -265,6 +269,8 @@ export function ProgressPage({ instanceId }: { instanceId: string }) {
   const [repairing, setRepairing] = useState(false);
   const [aborting, setAborting] = useState(false);
   const [destroying, setDestroying] = useState(false);
+  const [destroyModalOpen, setDestroyModalOpen] = useState(false);
+  const [restoreBundlePresent, setRestoreBundlePresent] = useState(false);
   const [hetznerAudit, setHetznerAudit] = useState<HetznerAudit | null>(null);
   const [volumesCtx, setVolumesCtx] = useState<VolumesContext | null>(null);
   const [syncingVolumes, setSyncingVolumes] = useState(false);
@@ -418,34 +424,26 @@ export function ProgressPage({ instanceId }: { instanceId: string }) {
     }
   };
 
+  useEffect(() => {
+    const loadBundle = async () => {
+      try {
+        const b = await api<{ present: boolean }>(`/instances/${instanceId}/restore-bundle`);
+        setRestoreBundlePresent(Boolean(b.present));
+      } catch {
+        setRestoreBundlePresent(false);
+      }
+    };
+    loadBundle();
+    const t = setInterval(loadBundle, 15000);
+    return () => clearInterval(t);
+  }, [instanceId]);
+
   const abortProvisioning = async () => {
     setAborting(true);
     try {
       await api(`/instances/${instanceId}/abort`, { method: "POST" });
     } finally {
       setAborting(false);
-    }
-  };
-
-  const destroyAll = async () => {
-    const ok = window.confirm(
-      "Destroy cluster infrastructure in Hetzner?\n\n" +
-        "This runs terraform destroy and removes servers, private network, firewall, " +
-        "placement group, and SSH key resources.\n\n" +
-        "Load balancer(s) and block volumes created by Kubernetes (ingress + PostgreSQL data) " +
-        "are NOT deleted — they keep billing until you remove them in Hetzner Console. " +
-        "That is intentional so database data is not destroyed accidentally.\n\n" +
-        "Wizard settings and secrets are kept so you can provision again."
-    );
-    if (!ok) return;
-    setDestroying(true);
-    try {
-      await api(`/instances/${instanceId}/destroy`, {
-        method: "POST",
-        body: JSON.stringify({ confirm: true }),
-      });
-    } finally {
-      setDestroying(false);
     }
   };
 
@@ -483,14 +481,23 @@ export function ProgressPage({ instanceId }: { instanceId: string }) {
           ? (status.step <= 4 ? "Building cluster" : "Installing workloads")
           : volumesCtx?.reattach_eligible && volumesCtx.secrets_available && hetznerAudit?.clean
             ? "Ready to recreate"
-            : "Not started";
+            : restoreBundlePresent && hetznerAudit?.clean
+              ? "Ready to recreate (restore bundle)"
+              : "Not started";
 
-  const recreateReady =
+  const recreateWithVolumes =
     !isRunning &&
     status?.state === "pending" &&
     status?.phase === "idle" &&
     Boolean(volumesCtx?.reattach_eligible && volumesCtx.secrets_available) &&
     Boolean(hetznerAudit?.clean);
+  const recreateWithBundle =
+    !isRunning &&
+    status?.state === "pending" &&
+    status?.phase === "idle" &&
+    restoreBundlePresent &&
+    Boolean(hetznerAudit?.clean);
+  const recreateReady = recreateWithVolumes || recreateWithBundle;
 
   const recreateLink = `/instances/${instanceId}/setup?recreate=1`;
 
@@ -525,6 +532,8 @@ export function ProgressPage({ instanceId }: { instanceId: string }) {
     (status?.state === "succeeded" || isFirewallPhase) &&
     !instanceSpec?.firewall_hardened;
   const firewallHardened = Boolean(instanceSpec?.firewall_hardened);
+
+  const showDbBackups = status?.state === "succeeded" && clusterNodesReady;
 
   const statusDotClass =
     status?.state === "failed"
@@ -572,18 +581,21 @@ export function ProgressPage({ instanceId }: { instanceId: string }) {
         <section className="panel recreate-banner">
           <h2 style={{ marginBottom: 8 }}>Recreate cluster</h2>
           <p className="muted" style={{ marginTop: 0 }}>
-            Infrastructure is torn down but saved secrets and Hetzner block volumes are available. Recreate rebuilds
-            servers and Kubernetes, rebinds your database and upload volumes, then redeploys HCCE.
+            {recreateWithVolumes
+              ? "Infrastructure is torn down but saved secrets and Hetzner block volumes are available. Recreate rebuilds servers and Kubernetes, rebinds your database and upload volumes, then redeploys HCCE."
+              : "Infrastructure is torn down but a local restore bundle is saved (secrets + PostgreSQL dump). Recreate with new volumes and restore the database from the bundle on the review step."}
           </p>
-          <ul className="topo-list" style={{ margin: "12px 0", paddingLeft: 0, listStyle: "none" }}>
-            {(volumesCtx?.entries || [])
-              .filter((e) => e.reattach_eligible)
-              .map((entry) => (
-                <li key={entry.pvc_name} className="muted" style={{ fontSize: 13, marginBottom: 4 }}>
-                  {PVC_LABELS[entry.pvc_name] || entry.pvc_name} → Hetzner #{entry.hetzner_volume_id}
-                </li>
-              ))}
-          </ul>
+          {recreateWithVolumes && (
+            <ul className="topo-list" style={{ margin: "12px 0", paddingLeft: 0, listStyle: "none" }}>
+              {(volumesCtx?.entries || [])
+                .filter((e) => e.reattach_eligible)
+                .map((entry) => (
+                  <li key={entry.pvc_name} className="muted" style={{ fontSize: 13, marginBottom: 4 }}>
+                    {PVC_LABELS[entry.pvc_name] || entry.pvc_name} → Hetzner #{entry.hetzner_volume_id}
+                  </li>
+                ))}
+            </ul>
+          )}
           <Link to={recreateLink} className="btn btn-primary" style={{ textDecoration: "none", marginTop: 8 }}>
             Recreate cluster
           </Link>
@@ -744,6 +756,12 @@ export function ProgressPage({ instanceId }: { instanceId: string }) {
           </p>
         </section>
       )}
+
+      <DbBackupsPanel instanceId={instanceId} enabled={showDbBackups} />
+
+      <AssetsBackupsPanel instanceId={instanceId} enabled={showDbBackups} />
+
+      <RestoreBundlePanel instanceId={instanceId} />
 
       {showFirewallStep && (
         <section className="panel">
@@ -983,8 +1001,10 @@ export function ProgressPage({ instanceId }: { instanceId: string }) {
           <h2 style={{ marginBottom: 8 }}>Volume inventory</h2>
           <p className="muted" style={{ marginTop: 0 }}>
             PVC → Hetzner volume mapping for this instance.
-            {recreateReady ? (
+            {recreateWithVolumes ? (
               <> Use <Link to={recreateLink}>Recreate cluster</Link> to rebind these volumes.</>
+            ) : restoreBundlePresent ? (
+              <> Volumes may be gone — use <Link to={recreateLink}>Recreate cluster</Link> with the local restore bundle.</>
             ) : (
               <> Use <Link to={`/instances/${instanceId}/setup?step=2`}>Machines &amp; SSH</Link> to reattach after destroy.</>
             )}
@@ -1066,7 +1086,8 @@ export function ProgressPage({ instanceId }: { instanceId: string }) {
             Tear down Terraform-managed infrastructure: three servers, private network, firewall,
             placement group, and SSH key. Kubernetes-created ingress load balancer(s) and CSI block
             volumes (PostgreSQL / Reticulum data) are left in Hetzner on purpose and continue billing
-            until you delete them in the Console. Wizard settings and secrets are kept.
+            until you delete them in the Console. Optionally save a local restore bundle (secrets + DB dump)
+            before destroy so you can recreate without matching secrets manually.
           </p>
           {status?.phase === "destroy" && status.state === "failed" && (
             <p className="bad-text" style={{ marginTop: 12 }}>
@@ -1084,7 +1105,7 @@ export function ProgressPage({ instanceId }: { instanceId: string }) {
             className="btn btn-outline bad-text"
             style={{ marginTop: 16, borderColor: "var(--bad)" }}
             disabled={destroying || isDestroyRunning || (isRunning && status?.phase === "terraform")}
-            onClick={() => void destroyAll()}
+            onClick={() => setDestroyModalOpen(true)}
           >
             {destroying || isDestroyRunning ? "Destroying cluster infrastructure…" : "Destroy cluster infrastructure"}
           </button>
@@ -1095,6 +1116,14 @@ export function ProgressPage({ instanceId }: { instanceId: string }) {
           )}
         </section>
       )}
+
+      <DestroyClusterModal
+        instanceId={instanceId}
+        open={destroyModalOpen}
+        backupsEnabled={Boolean(showDbBackups)}
+        onClose={() => setDestroyModalOpen(false)}
+        onStarted={() => setDestroying(true)}
+      />
     </div>
   );
 }

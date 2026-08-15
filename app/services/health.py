@@ -303,7 +303,7 @@ def evaluate_health(
                     "tls",
                     "warn",
                     f"{len(ready_certs)}/{len(hcce_certs)} Ready",
-                    hint="Ensure DNS A records point at the LB public IP; ACME HTTP-01 must reach the cluster.",
+                    hint="Ensure DNS A records point at the LB public IP. If hub or stream certs stay Not ready, check that ret/dialog ingresses do not use ssl-redirect (breaks HTTP-01 on /).",
                 )
             )
 

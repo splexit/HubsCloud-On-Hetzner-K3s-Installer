@@ -58,6 +58,24 @@ function getReattachPolicy(spec: Spec): VolumeReattachPolicy {
   return { mode: "provision_new", volumes: {} };
 }
 
+type RestoreFromBundlePolicy = {
+  enabled: boolean;
+};
+
+type RestoreBundleStatus = {
+  present: boolean;
+  manifest: {
+    db_backup_filename: string;
+    db_backup_date: string;
+    db_backup_time: string;
+  } | null;
+};
+
+function getRestoreFromBundle(spec: Spec): RestoreFromBundlePolicy {
+  const raw = spec.restore_from_bundle as RestoreFromBundlePolicy | undefined;
+  return { enabled: Boolean(raw?.enabled) };
+}
+
 function volumeGi(gb: number) {
   return `${gb}Gi`;
 }
@@ -150,6 +168,7 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
   const specRef = useRef<Spec>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoReattachAppliedRef = useRef(false);
+  const autoRestoreBundleAppliedRef = useRef(false);
   const [tokenOk, setTokenOk] = useState<boolean | null>(null);
   const [tokenMsg, setTokenMsg] = useState("");
   const [tokenValidating, setTokenValidating] = useState(false);
@@ -165,6 +184,7 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
   const [serverTypesMsg, setServerTypesMsg] = useState("");
   const [volumesCtx, setVolumesCtx] = useState<VolumesContext | null>(null);
   const [volumesLoading, setVolumesLoading] = useState(false);
+  const [restoreBundle, setRestoreBundle] = useState<RestoreBundleStatus | null>(null);
 
   useEffect(() => {
     api<{ spec: Spec }>(`/instances/${instanceId}`).then((d) => {
@@ -268,15 +288,35 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
         mode: "reattach_saved",
         volumes: policy.volumes,
       },
+      restore_from_bundle: { enabled: false },
     });
   }, [volumesCtx]);
 
+  useEffect(() => {
+    void api<RestoreBundleStatus>(`/instances/${instanceId}/restore-bundle`)
+      .then(setRestoreBundle)
+      .catch(() => setRestoreBundle(null));
+  }, [instanceId]);
+
+  useEffect(() => {
+    if (!restoreBundle?.present) return;
+    if (volumesCtx?.reattach_eligible && volumesCtx.secrets_available) return;
+    const policy = getRestoreFromBundle(specRef.current);
+    if (policy.enabled || autoRestoreBundleAppliedRef.current) return;
+    autoRestoreBundleAppliedRef.current = true;
+    patchAndSave({ restore_from_bundle: { enabled: true } });
+  }, [restoreBundle, volumesCtx]);
+
   const reattachPolicy = getReattachPolicy(spec);
+  const restoreFromBundle = getRestoreFromBundle(spec);
   const isRecreateFlow =
     recreateIntent ||
     (volumesCtx?.reattach_eligible === true && reattachPolicy.mode === "reattach_saved");
   const reattachBlocked =
     reattachPolicy.mode === "reattach_saved" && volumesCtx?.secrets_available === false;
+  const restoreBundleBlocked =
+    restoreFromBundle.enabled && !restoreBundle?.present;
+  const startBlocked = reattachBlocked || restoreBundleBlocked;
 
   const setReattachMode = (enabled: boolean) => {
     patchAndSave({
@@ -284,6 +324,21 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
         mode: enabled ? "reattach_saved" : "provision_new",
         volumes: reattachPolicy.volumes,
       },
+      ...(enabled ? { restore_from_bundle: { enabled: false } } : {}),
+    });
+  };
+
+  const setRestoreFromBundleEnabled = (enabled: boolean) => {
+    patchAndSave({
+      restore_from_bundle: { enabled },
+      ...(enabled
+        ? {
+            volume_reattach: {
+              mode: "provision_new",
+              volumes: reattachPolicy.volumes,
+            },
+          }
+        : {}),
     });
   };
 
@@ -451,7 +506,7 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
   }, [step, spec, tokenOk, tokenValidating, resolvedTypes, serverTypes.length]);
 
   const startCreate = async () => {
-    if (reattachBlocked) return;
+    if (startBlocked) return;
     await saveSpec();
     await api(`/instances/${instanceId}/create`, { method: "POST" });
     nav(`/instances/${instanceId}`);
@@ -1037,8 +1092,11 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
             <h2>{isRecreateFlow ? "Review & recreate" : "Review"}</h2>
             {isRecreateFlow && (
               <p className="muted" style={{ marginTop: 0 }}>
-                Infrastructure was destroyed; saved secrets and Hetzner block volumes will be reused. A new load
-                balancer and servers will be created — update DNS if the LB IP changes.
+                {reattachPolicy.mode === "reattach_saved"
+                  ? "Infrastructure was destroyed; saved secrets and Hetzner block volumes will be reused. A new load balancer and servers will be created — update DNS if the LB IP changes."
+                  : restoreFromBundle.enabled
+                    ? "Infrastructure was destroyed; a local restore bundle will provision new volumes and restore the PostgreSQL database after HCCE deploys."
+                    : "Infrastructure was destroyed; saved configuration will be reused with new Hetzner volumes."}
               </p>
             )}
             <div className="review-topology">
@@ -1063,7 +1121,9 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
                         .filter((e) => e.selected_for_reattach)
                         .map((e) => e.pvc_name)
                         .join(", ") || "none selected"})`
-                    : "Provision new volumes"}
+                    : restoreFromBundle.enabled
+                      ? "Provision new volumes + restore database from local bundle"
+                      : "Provision new volumes"}
                 </p>
               </div>
               <div className="cluster">
@@ -1082,21 +1142,47 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
                 </ul>
               </div>
             </div>
+            {restoreBundle?.present && reattachPolicy.mode === "provision_new" && (
+              <label style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 16 }}>
+                <input
+                  type="checkbox"
+                  checked={restoreFromBundle.enabled}
+                  onChange={(e) => setRestoreFromBundleEnabled(e.target.checked)}
+                  style={{ marginTop: 4 }}
+                />
+                <span>
+                  <strong>Restore database from local bundle</strong>
+                  <span className="muted" style={{ display: "block", fontSize: 13, marginTop: 4 }}>
+                    Applies {restoreBundle.manifest?.db_backup_filename || "saved dump"} (
+                    {restoreBundle.manifest?.db_backup_date} {restoreBundle.manifest?.db_backup_time} UTC) after HCCE
+                    deploys on fresh PostgreSQL storage. Reticulum uploads are not included yet.
+                  </span>
+                </span>
+              </label>
+            )}
             {reattachBlocked && (
               <p className="bad-text">
                 Cannot recreate with saved volumes — secrets.json is missing. Use the same instance data directory or
                 restore from your secrets ZIP.
               </p>
             )}
+            {restoreBundleBlocked && (
+              <p className="bad-text">
+                Restore from bundle is enabled but restore-bundle/ is missing — save a bundle before destroy or disable
+                this option.
+              </p>
+            )}
             <p className="muted">
               {isRecreateFlow
-                ? "Recreate cluster will rebuild servers and rebind saved volumes (~30–60+ minutes)."
+                ? restoreFromBundle.enabled
+                  ? "Recreate cluster will rebuild servers, create new volumes, deploy HCCE, then restore PostgreSQL from the local dump (~30–60+ minutes)."
+                  : "Recreate cluster will rebuild servers and rebind saved volumes (~30–60+ minutes)."
                 : "Create cluster will call Hetzner and run ~30–60+ minutes unattended."}
             </p>
             <button
               type="button"
               className="btn btn-primary"
-              disabled={reattachBlocked}
+              disabled={startBlocked}
               onClick={() => setConfirmOpen(true)}
             >
               {isRecreateFlow ? "Recreate cluster" : "Create cluster"}
@@ -1168,8 +1254,11 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
             </p>
             {isRecreateFlow ? (
               <p className="muted" style={{ marginBottom: 0 }}>
-                Rebuilds Hetzner servers and Kubernetes, then rebinds saved block volumes (PostgreSQL / Reticulum
-                data). Existing CSI volumes and any leftover load balancer continue billing until deleted in Console.
+                {reattachPolicy.mode === "reattach_saved"
+                  ? "Rebuilds Hetzner servers and Kubernetes, then rebinds saved block volumes (PostgreSQL / Reticulum data). Existing CSI volumes and any leftover load balancer continue billing until deleted in Console."
+                  : restoreFromBundle.enabled
+                    ? "Rebuilds Hetzner servers with new block volumes, deploys HCCE, then restores PostgreSQL from the local restore bundle."
+                    : "Rebuilds Hetzner servers and Kubernetes with new block volumes."}
               </p>
             ) : (
               <p className="muted" style={{ marginBottom: 0 }}>

@@ -20,6 +20,16 @@ Cluster recreate workflow, saved-instance picker on the landing page, honest inf
   under `./data/instances/<id>/` (not Hetzner volumes). Blocked while servers still exist.
 - **Architecture diagram preview** — landing page shows a compact traffic-flow + three-node preview;
   **Show details** expands the full workload/PVC diagram. Visible on mobile (stacked layout).
+- **Database backup downloads** — on the running cluster progress page, list and download PostgreSQL
+  CronJob dumps (`db_backup-*.gz`): latest, last 7 days, or by date. Files are copied from the
+  `pgsql-backups-pvc` volume via a short-lived reader pod (`GET /api/instances/{id}/db-backups`).
+- **Local restore bundle** — before destroy, optionally save `restore-bundle/` (secrets, spec, SSH keys,
+  volume inventory, PostgreSQL dump) so recreate does not require manually matching secrets to an old
+  database. Destroy modal picks latest / date / 7-day backup; progress page can save a bundle without
+  destroy. Recreate with new volumes applies the dump after HCCE deploy (`restore_from_bundle` on spec).
+  Reticulum asset volume export is planned separately.
+- **`GET/POST /api/instances/{id}/restore-bundle`** and **`GET .../restore-bundle.zip`** for bundle
+  status, creation, and offline download.
 
 ### Changed
 
@@ -33,6 +43,21 @@ Cluster recreate workflow, saved-instance picker on the landing page, honest inf
 
 - Stale **Running** label on the landing list when nodes were destroyed but `status.json` still said
   `succeeded`.
+- **TLS ACME for hub and stream hosts** — removed `haproxy.org/ssl-redirect` from the `ret` and
+  `dialog` ingresses. Catch-all `/` routes on those hosts were redirecting HTTP-01 challenges to
+  HTTPS and the Reticulum/Dialog backends (403). Dialog/coturn **hostNetwork** placement on the
+  WebRTC node is unchanged; HAProxy still terminates TLS and proxies to the dialog Service on 4443
+  via `server-ssl`. The `nearspark` ingress keeps ssl-redirect (cors host has no `/` rule, so ACME
+  is unaffected).
+- **Database backup listing on BusyBox** — backup reader pod uses `wc -c` instead of GNU `stat -c`
+  so listing/downloads work; empty volume shows a clear message until the first CronJob run.
+- **Create backup now** — `POST /api/instances/{id}/db-backups/run` triggers the `pgsql-backup`
+  CronJob immediately from the progress page (no kubectl needed).
+- **Reticulum assets backup** — `POST/GET /api/instances/{id}/assets-backups` streams a
+  `tar.gz` of `/storage` from the running Reticulum pod (no sidecar; `ret-pvc` stays RWO).
+  Archives are saved under `./data/instances/<id>/assets-backups/` for download.
+- **DB backup volume attach** — always tear down `hcce-backup-reader` after list/download
+  and wait for release before starting `pgsql-backup` jobs (fixes Multi-Attach on RWO PVC).
 
 ---
 

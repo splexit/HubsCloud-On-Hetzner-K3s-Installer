@@ -569,6 +569,68 @@ code {
   background: color-mix(in srgb, var(--ok) 6%, var(--bg));
 }
 
+.db-backups-panel {
+  margin-top: 24px;
+}
+
+.db-backups-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-top: 16px;
+}
+
+.db-backups-latest-meta {
+  font-size: 13px;
+}
+
+.db-backups-by-date {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.db-backups-date-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.db-backups-date-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.db-backups-date-row input[type="date"] {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  background: var(--bg);
+}
+
+.db-backups-recent {
+  margin-top: 20px;
+}
+
+.db-backups-subtitle {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.db-backups-table {
+  margin-top: 0;
+}
+
+.db-backups-footnote {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
 /* Wizard */
 .wizard-grid {
   display: grid;

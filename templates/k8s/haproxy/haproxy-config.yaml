@@ -13,8 +13,10 @@ data:
     option forwardfor
     option http-pretend-keepalive
 
-  # DISABLE global SSL redirect to allow ACME challenges on HTTP
-  # ssl-redirect: "true"  # Commented out - we'll handle SSL redirect per ingress
+  # DISABLE global SSL redirect to allow ACME HTTP-01 on port 80.
+  # Do not set haproxy.org/ssl-redirect on ingresses with a catch-all path / rule
+  # (ret hub host, dialog stream host) — that sends challenges to HTTPS/app backends.
+  # ssl-redirect: "true"  # Commented out - per-ingress only where paths are specific
 
   # Configure proper HTTPS port for redirects
   https-port: "443" # External HTTPS port (what users see)

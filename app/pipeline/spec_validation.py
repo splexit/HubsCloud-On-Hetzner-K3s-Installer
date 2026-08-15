@@ -75,6 +75,15 @@ def validate_spec(spec: InstanceSpec) -> None:
     if reattach_errors:
         raise PipelineError("; ".join(reattach_errors))
 
+    if spec.restore_from_bundle.enabled:
+        from services.restore_bundle_paths import has_restore_bundle
+
+        if not has_restore_bundle(spec.id):
+            raise PipelineError(
+                "Restore from local bundle is enabled but restore-bundle/ is missing on disk — "
+                "save a restore bundle before destroy or disable the option"
+            )
+
     types = spec.resolved_server_types()
     ok, msg, _invalid = validate_server_types(
         spec.hetzner_api_token,

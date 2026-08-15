@@ -127,6 +127,21 @@ def run_pipeline(instance_id: str) -> None:
         if bound:
             append_log(instance_id, f"Volume inventory saved: {', '.join(bound)}")
 
+        from services.restore_bundle_paths import local_restore_dump_path
+
+        restore_dump = local_restore_dump_path(instance_id) if (
+            spec.restore_from_bundle.enabled and spec.volume_reattach.mode == "provision_new"
+        ) else None
+        if restore_dump:
+            update_status(instance_id, "workloads", 9, "running", "Restoring database from local restore bundle")
+            append_log(instance_id, f"Applying local restore bundle dump {restore_dump.name}")
+            from services.db_restore import DbRestoreError, restore_database_from_file
+
+            try:
+                restore_database_from_file(instance_id, restore_dump)
+            except DbRestoreError as e:
+                raise PipelineError(str(e)) from e
+
         lb_ip = wait_lb_public_ip(instance_id, spec, network_id, timeout=600)
         update_status(instance_id, "done", 10, "running", "Writing deployment info")
         info = build_deployment_info(spec, lb_ip=lb_ip, master_ip=master_ip, network_id=network_id)

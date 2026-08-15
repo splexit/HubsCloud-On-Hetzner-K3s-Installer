@@ -43,7 +43,14 @@ def _leftover_summary(verify: dict) -> str:
     )
 
 
-def destroy_cluster(instance_id: str) -> dict:
+def destroy_cluster(
+    instance_id: str,
+    *,
+    save_restore_bundle: bool = False,
+    backup_latest: bool = True,
+    backup_date: str | None = None,
+    backup_filename: str | None = None,
+) -> dict:
     """Terraform destroy of installer-managed infrastructure.
 
     Kubernetes-created load balancers and CSI block volumes are left in place on purpose
@@ -63,6 +70,7 @@ def destroy_cluster(instance_id: str) -> dict:
         "volumes_deleted": [],
         "billable_leftovers": {"load_balancers": [], "volumes": []},
         "errors": [],
+        "restore_bundle_saved": False,
     }
 
     update_status(instance_id, "destroy", 0, "running", f"Destroying {provider.id} cluster infrastructure")
@@ -71,6 +79,32 @@ def destroy_cluster(instance_id: str) -> dict:
         "Destroy started — terraform destroy (servers, network, firewall). "
         "Kubernetes load balancers and CSI volumes are kept on purpose.",
     )
+
+    if save_restore_bundle:
+        from services.db_backups import DbBackupError
+        from services.restore_bundle import create_restore_bundle
+
+        try:
+            manifest = create_restore_bundle(
+                instance_id,
+                latest=backup_latest,
+                backup_date=backup_date,
+                backup_filename=backup_filename,
+            )
+            summary["restore_bundle_saved"] = True
+            summary["restore_bundle"] = manifest.model_dump()
+            spec.restore_from_bundle.enabled = True
+            save_spec(spec)
+            append_log(
+                instance_id,
+                "Restore bundle saved locally — recreate can use this dump without Hetzner volumes",
+            )
+        except DbBackupError as e:
+            err = f"Restore bundle failed: {e}"
+            append_log(instance_id, err)
+            summary["errors"].append(err)
+            update_status(instance_id, "destroy", 0, "failed", err, error=err, intervention="destroy")
+            raise PipelineError(err) from e
 
     inventory: dict = {"cluster_ids": set(), "load_balancers": [], "persistent_volumes": []}
     try:

@@ -106,6 +106,10 @@ class VolumesContext(BaseModel):
     entries: list[VolumeContextEntry] = Field(default_factory=list)
 
 
+class RestoreFromBundlePolicy(BaseModel):
+    enabled: bool = False
+
+
 class InstanceSpec(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -131,6 +135,7 @@ class InstanceSpec(BaseModel):
     reticulum_volume_size: str = DEFAULT_RETICULUM_VOLUME
     pgsql_backup_volume_size: str = DEFAULT_PGSQL_BACKUP_VOLUME
     volume_reattach: VolumeReattachPolicy = Field(default_factory=VolumeReattachPolicy)
+    restore_from_bundle: RestoreFromBundlePolicy = Field(default_factory=RestoreFromBundlePolicy)
     firewall_hardened: bool = False
     firewall_allow_ssh: bool = True
     auto_repair_cluster_join: bool = True
@@ -212,6 +217,56 @@ class InstanceStatus(BaseModel):
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
+class DbBackupEntry(BaseModel):
+    filename: str
+    size_bytes: int
+    backup_date: str
+    backup_time: str
+    created_at: str
+
+
+class DbBackupsList(BaseModel):
+    available: bool
+    message: str = ""
+    keep_days: int = 14
+    latest: DbBackupEntry | None = None
+    recent: list[DbBackupEntry] = Field(default_factory=list)
+    all_count: int = 0
+
+
+class AssetsBackupEntry(BaseModel):
+    filename: str
+    size_bytes: int
+    backup_date: str
+    backup_time: str
+    created_at: str
+
+
+class AssetsBackupsList(BaseModel):
+    available: bool
+    message: str = ""
+    latest: AssetsBackupEntry | None = None
+    recent: list[AssetsBackupEntry] = Field(default_factory=list)
+    all_count: int = 0
+
+
+class RestoreBundleManifest(BaseModel):
+    instance_id: str
+    hub_domain: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    db_backup_filename: str
+    db_backup_date: str
+    db_backup_time: str = ""
+    db_backup_size_bytes: int = 0
+    includes_reticulum_assets: bool = False
+
+
+class RestoreBundleStatus(BaseModel):
+    present: bool = False
+    manifest: RestoreBundleManifest | None = None
+    message: str = ""
+
+
 class InstanceSummary(BaseModel):
     id: str
     hub_domain: str
@@ -226,6 +281,7 @@ class InstanceSummary(BaseModel):
     can_recreate: bool = False
     infrastructure_active: bool = False
     display_status: str = "unknown"
+    has_restore_bundle: bool = False
 
 
 class ResourcesSnapshot(BaseModel):

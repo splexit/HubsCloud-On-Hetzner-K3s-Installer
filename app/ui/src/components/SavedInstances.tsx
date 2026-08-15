@@ -16,6 +16,7 @@ export type InstanceSummary = {
   can_recreate: boolean;
   infrastructure_active: boolean;
   display_status: string;
+  has_restore_bundle: boolean;
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -134,6 +135,9 @@ function InstanceCard({
             {row.saved_volumes_count} saved volume{row.saved_volumes_count === 1 ? "" : "s"}
             {!row.secrets_available && " · secrets missing"}
           </span>
+        )}
+        {row.has_restore_bundle && (
+          <span className="muted saved-instance-meta">restore bundle saved</span>
         )}
         {deleteError && <span className="bad-text saved-instance-meta">{deleteError}</span>}
       </div>
