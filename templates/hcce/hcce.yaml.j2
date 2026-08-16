@@ -861,6 +861,15 @@ spec:
       template:
         spec:
           restartPolicy: OnFailure
+          nodeSelector:
+            workload-type: database
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
+            - key: node-role.kubernetes.io/master
+              operator: Exists
+              effect: NoSchedule
           containers:
             - name: backup
               image: ubuntu:22.04

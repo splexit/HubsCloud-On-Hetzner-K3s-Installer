@@ -144,6 +144,19 @@ def _create_reader_pod(instance_id: str) -> None:
         },
         "spec": {
             "restartPolicy": "Never",
+            "nodeSelector": {"workload-type": "database"},
+            "tolerations": [
+                {
+                    "key": "node-role.kubernetes.io/control-plane",
+                    "operator": "Exists",
+                    "effect": "NoSchedule",
+                },
+                {
+                    "key": "node-role.kubernetes.io/master",
+                    "operator": "Exists",
+                    "effect": "NoSchedule",
+                },
+            ],
             "containers": [
                 {
                     "name": "reader",

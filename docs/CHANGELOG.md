@@ -58,6 +58,8 @@ Cluster recreate workflow, saved-instance picker on the landing page, honest inf
   Archives are saved under `./data/instances/<id>/assets-backups/` for download.
 - **DB backup volume attach** — always tear down `hcce-backup-reader` after list/download
   and wait for release before starting `pgsql-backup` jobs (fixes Multi-Attach on RWO PVC).
+- **`pgsql-backup` scheduling** — CronJob and backup reader pod pin to `workload-type: database`
+  (master) so `pgsql-backups-pvc` does not attach to the WebRTC worker.
 
 ---
 
