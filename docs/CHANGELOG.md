@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.2.1] — 2026-11-02
+
+Security release: Node2Shell fix and digest-pinned container images.
+
+### Security
+
+- **Node2Shell (CVE-2026-111497)** — dialog, nearspark and photomnemonic switch from the unmaintained
+  `mozillareality/*` images to the `hubsfoundation/*` builds of 2026-10-29, which moved to current
+  Node.js (Hubs-Foundation/dialog#66, Hubs-Foundation/Spoke#1317, Hubs-Foundation/photomnemonic#40;
+  hubs-cloud 2.1.2, Hubs-Foundation/hubs-cloud#410). The fix is inferred from those releases; the
+  advisory itself is not checked yet.
+- **All Hubs Foundation images pinned by digest** — the wizard default for reticulum (build 855), hubs and
+  spoke deploys a fixed digest instead of `stable-latest`. Updates are manual: bump the digests in
+  `app/services/core_images.py` and `app/ui/src/pages/Wizard.tsx`.
+- Images chosen by tag in the wizard use `imagePullPolicy: Always`, so a node cannot keep a stale cached build.
+- Running clusters get the new images only through destroy and recreate.
+
 ## [1.2.0] — 2026-08-15
 
 Cluster recreate workflow, saved-instance picker on the landing page, honest infrastructure status, local config cleanup, and a simpler architecture diagram.

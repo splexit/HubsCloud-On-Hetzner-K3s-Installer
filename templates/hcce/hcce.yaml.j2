@@ -571,7 +571,7 @@ spec:
           image: {{ reticulum_image | tojson }}
           ports:
             - containerPort: 9100
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: {{ reticulum_image | pull_policy }}
           resources:
             requests:
               cpu: 500m
@@ -1058,7 +1058,7 @@ spec:
       containers:
         - name: hubs
           image: {{ hubs_image | tojson }}
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: {{ hubs_image | pull_policy }}
           resources:
             requests:
               cpu: 100m
@@ -1134,7 +1134,7 @@ spec:
       containers:
         - name: spoke
           image: {{ spoke_image | tojson }}
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: {{ spoke_image | pull_policy }}
           env:
             - name: turkeyCfg_thumbnail_server
               value: cors.{{ hub_domain }}/nearspark
@@ -1212,10 +1212,10 @@ spec:
         workload-type: web # Schedule on web worker node (image processing)
       containers:
         - name: nearspark
-          image: mozillareality/nearspark:stable-latest
+          image: {{ nearspark_image | tojson }}
           ports:
             - containerPort: 5000
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: {{ nearspark_image | pull_policy }}
           resources:
             requests:
               cpu: 100m
@@ -1262,8 +1262,8 @@ spec:
         workload-type: web # Schedule on web worker node (image processing)
       containers:
         - name: photomnemonic
-          image: mozillareality/photomnemonic:stable-latest
-          imagePullPolicy: IfNotPresent
+          image: {{ photomnemonic_image | tojson }}
+          imagePullPolicy: {{ photomnemonic_image | pull_policy }}
           resources:
             requests:
               cpu: 100m
@@ -1324,8 +1324,8 @@ spec:
       hostNetwork: true
       containers:
         - name: dialog
-          image: mozillareality/dialog:stable-latest
-          imagePullPolicy: Always
+          image: {{ dialog_image | tojson }}
+          imagePullPolicy: {{ dialog_image | pull_policy }}
           ports:
             - hostPort: 4443
               containerPort: 4443

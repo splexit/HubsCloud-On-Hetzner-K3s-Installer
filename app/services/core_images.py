@@ -8,10 +8,40 @@ CoreAppImageMode = Literal["default", "pin", "custom"]
 
 CORE_APP_NAMES: tuple[CoreAppName, ...] = ("reticulum", "hubs", "spoke")
 
+# "default" mode deploys `image`, pinned by digest so every node and every pod
+# restart runs the same build. Updates are deliberate: bump the digests here (and
+# in APP_DEFAULTS in app/ui/src/pages/Wizard.tsx). Current pins are the
+# `stable-latest` builds as of 2026-11-02 — reticulum build 855 (2026-03-12),
+# hubs and spoke from 2026-10-29. `default_tag` is the pin-mode fallback only.
 CORE_APP_DEFAULTS: dict[CoreAppName, dict[str, str]] = {
-    "reticulum": {"repo": "hubsfoundation/reticulum", "default_tag": "stable-latest"},
-    "hubs": {"repo": "hubsfoundation/hubs", "default_tag": "stable-latest"},
-    "spoke": {"repo": "hubsfoundation/spoke", "default_tag": "stable-latest"},
+    "reticulum": {
+        "repo": "hubsfoundation/reticulum",
+        "default_tag": "stable-latest",
+        "image": "hubsfoundation/reticulum@sha256:16fb2b23c0593d7639f4af8eb9eee3ddc3e5df1d5677a4854804a867e38aeb5e",
+    },
+    "hubs": {
+        "repo": "hubsfoundation/hubs",
+        "default_tag": "stable-latest",
+        "image": "hubsfoundation/hubs@sha256:878fd63c687a5652266577f19c65de309f61dc9beb0ef0f71fbac73655c39cd9",
+    },
+    "spoke": {
+        "repo": "hubsfoundation/spoke",
+        "default_tag": "stable-latest",
+        "image": "hubsfoundation/spoke@sha256:4c071b3184263a1fd53be0964bbd9fd1aa56fc21eba468c73f58e64d6b1f0ff2",
+    },
+}
+
+# Support services with no wizard choice. Pinned by digest: these are the
+# hubsfoundation `stable-latest` builds of 2026-10-29, which moved the Node.js
+# services to current Node releases (Node2Shell, CVE-2026-111497; hubs-cloud
+# 2.1.2). The mozillareality/* images are unmaintained (last builds 2022–2024).
+# Bump the digests here when the Hubs Foundation ships a new build, as for
+# CORE_APP_DEFAULTS.
+SupportAppName = Literal["dialog", "nearspark", "photomnemonic"]
+SUPPORT_APP_IMAGES: dict[SupportAppName, str] = {
+    "dialog": "hubsfoundation/dialog@sha256:ae24bef57ed80a6ee723fd8c447eb28c149e2c9f27808efd1e7e302fc9539e0a",
+    "nearspark": "hubsfoundation/nearspark@sha256:c2af7c30a78119a52872279cd0bdbb0fd2d98a6456e2d9fe8272afd6b8f846c3",
+    "photomnemonic": "hubsfoundation/photomnemonic@sha256:ea598857aa1284acb96b0a6881f79cfb8cee62542a3c8e246beda94859d4715d",
 }
 
 # Reticulum replaced Bamboo with Swoosh for sending email on 2026-02-27
@@ -63,15 +93,25 @@ def resolve_core_app_image(app: CoreAppName, settings: dict[str, dict[str, str]]
     meta = CORE_APP_DEFAULTS[app]
     mode = cfg.get("mode", "default")
     if mode == "custom":
-        return cfg.get("image") or f"{meta['repo']}:{meta['default_tag']}"
+        return cfg.get("image") or meta["image"]
     if mode == "pin":
         tag = cfg.get("tag") or meta["default_tag"]
         return f"{meta['repo']}:{tag}"
-    return f"{meta['repo']}:{meta['default_tag']}"
+    return meta["image"]
 
 
 def resolve_all_core_app_images(settings: dict[str, dict[str, str]] | None) -> dict[str, str]:
     return {app: resolve_core_app_image(app, settings) for app in CORE_APP_NAMES}
+
+
+def image_pull_policy(ref: str) -> str:
+    """IfNotPresent for a digest ref, Always for a tag.
+
+    A rolling tag such as stable-latest with IfNotPresent keeps whatever build a
+    node cached first, so security fixes never arrive. A digest names exactly one
+    build, so a cached copy is always the right one.
+    """
+    return "IfNotPresent" if "@sha256:" in (ref or "") else "Always"
 
 
 def _tag_predates_swoosh(ref: str) -> int | None:

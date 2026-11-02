@@ -15,7 +15,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TEMPLATES_DIR=/opt/templates
 ENV DATA_DIR=/data
 ENV INSTALLER_README=/opt/installer/README.md
-ENV APP_VERSION=1.2.0
+ENV APP_VERSION=1.2.1
 ENV PYTHONPATH=/app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

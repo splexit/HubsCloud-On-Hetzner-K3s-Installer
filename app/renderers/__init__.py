@@ -9,7 +9,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from config import TEMPLATES_DIR, instance_dir
 from schemas.models import InstanceSpec
 from services.hetzner import estimate_cluster_monthly_cost
-from services.core_images import resolve_all_core_app_images
+from services.core_images import SUPPORT_APP_IMAGES, image_pull_policy, resolve_all_core_app_images
 from services.secrets import generate_rsa_material, generate_self_signed_cert
 
 
@@ -45,6 +45,7 @@ def _jinja_env() -> Environment:
         keep_trailing_newline=True,
     )
     env.filters["sed_replacement"] = sed_replacement
+    env.filters["pull_policy"] = image_pull_policy
     return env
 
 
@@ -105,6 +106,9 @@ def _base_context(spec: InstanceSpec, secrets: dict[str, str]) -> dict:
         "reticulum_image": resolved_images["reticulum"],
         "hubs_image": resolved_images["hubs"],
         "spoke_image": resolved_images["spoke"],
+        "dialog_image": SUPPORT_APP_IMAGES["dialog"],
+        "nearspark_image": SUPPORT_APP_IMAGES["nearspark"],
+        "photomnemonic_image": SUPPORT_APP_IMAGES["photomnemonic"],
         "ssh_public_key_path": str(inst / "ssh" / "id_ed25519.pub"),
         "ssh_private_key_path": str(inst / "ssh" / "id_ed25519"),
         "firewall_hardened": "true" if spec.firewall_hardened else "false",

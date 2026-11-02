@@ -1148,6 +1148,7 @@ code {
   font-size: 13px;
   color: var(--text-secondary);
   margin-top: 2px;
+  overflow-wrap: anywhere; /* digest refs have no break points */
 }
 
 .image-preview {
@@ -1159,6 +1160,7 @@ code {
   border-radius: var(--radius-sm);
   padding: 8px 10px;
   margin-top: 8px;
+  overflow-wrap: anywhere;
 }
 
 .review-grid {

@@ -23,6 +23,16 @@
 
 Shipped in `installer/templates/`, copied to `/opt/templates` at image build. Curated HCCE from this cluster’s stack (HAProxy, cert-manager, pgsql-backup). No `hubs-cloud` / `gen-hcce`.
 
+## Container images
+
+| Service | Image | Pull policy |
+|---------|-------|-------------|
+| reticulum, hubs, spoke | `hubsfoundation/*@sha256:…` by default, pinned in `CORE_APP_DEFAULTS` (`services/core_images.py`, mirrored in `APP_DEFAULTS` in `ui/src/pages/Wizard.tsx`); wizard can pin a tag or set a custom image | `IfNotPresent` for a digest, `Always` for a tag |
+| dialog, nearspark, photomnemonic | `hubsfoundation/*@sha256:…`, pinned in `SUPPORT_APP_IMAGES` (`services/core_images.py`) | `IfNotPresent` |
+| coturn, postgres, pgbouncer, postgrest | `mozillareality/*:stable-latest` (no `hubsfoundation` build exists; not Node.js) | `IfNotPresent` |
+
+Every Hubs Foundation image is pinned by digest, so every node and pod restart runs the same build. Updates are manual: when the Hubs Foundation ships a new build, bump the digests in `CORE_APP_DEFAULTS`, `SUPPORT_APP_IMAGES` and the wizard's `APP_DEFAULTS`, and note it in the CHANGELOG. The `mozillareality/*` builds of the Node.js services are unmaintained (last builds 2022–2024). A running cluster picks up new images only through destroy and recreate; there is no in-place update operation yet.
+
 ## Cloud providers
 
 Terraform templates live under `installer/templates/terraform/` (Hetzner `hcloud_*` resources today). A **provider layer** in `app/services/providers/` isolates cloud API calls from pipeline orchestration so a second provider (e.g. Hostinger) can be added later without rewriting the wizard or progress UI.

@@ -91,10 +91,26 @@ function formatVolumeLabel(gb: number) {
 
 type AppImageCfg = { mode: ImageMode; tag: string; image: string };
 
-const APP_DEFAULTS: Record<CoreApp, { repo: string; tag: string; label: string }> = {
-  reticulum: { repo: "hubsfoundation/reticulum", tag: "stable-latest", label: "Reticulum" },
-  hubs: { repo: "hubsfoundation/hubs", tag: "stable-latest", label: "Hubs" },
-  spoke: { repo: "hubsfoundation/spoke", tag: "stable-latest", label: "Spoke" },
+// Keep `image` in sync with CORE_APP_DEFAULTS in app/services/core_images.py.
+const APP_DEFAULTS: Record<CoreApp, { repo: string; tag: string; image: string; label: string }> = {
+  reticulum: {
+    repo: "hubsfoundation/reticulum",
+    tag: "stable-latest",
+    image: "hubsfoundation/reticulum@sha256:16fb2b23c0593d7639f4af8eb9eee3ddc3e5df1d5677a4854804a867e38aeb5e",
+    label: "Reticulum",
+  },
+  hubs: {
+    repo: "hubsfoundation/hubs",
+    tag: "stable-latest",
+    image: "hubsfoundation/hubs@sha256:878fd63c687a5652266577f19c65de309f61dc9beb0ef0f71fbac73655c39cd9",
+    label: "Hubs",
+  },
+  spoke: {
+    repo: "hubsfoundation/spoke",
+    tag: "stable-latest",
+    image: "hubsfoundation/spoke@sha256:4c071b3184263a1fd53be0964bbd9fd1aa56fc21eba468c73f58e64d6b1f0ff2",
+    label: "Spoke",
+  },
 };
 
 const TAG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -111,7 +127,7 @@ function resolveAppImagePreview(app: CoreApp, cfg: AppImageCfg): string {
   const meta = APP_DEFAULTS[app];
   if (cfg.mode === "custom" && cfg.image.trim()) return cfg.image.trim();
   if (cfg.mode === "pin" && cfg.tag.trim()) return `${meta.repo}:${cfg.tag.trim()}`;
-  return `${meta.repo}:${meta.tag}`;
+  return meta.image;
 }
 
 function appImageValid(cfg: AppImageCfg): boolean {
@@ -989,7 +1005,7 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
                       <div className="image-option-body">
                         <div className="image-option-title">Hubs Foundation default</div>
                         <div className="image-option-desc">
-                          {meta.repo}:{meta.tag}
+                          {meta.image}
                         </div>
                       </div>
                     </label>
@@ -1135,7 +1151,7 @@ export function WizardPage({ instanceId }: { instanceId: string }) {
                 <p className="cluster-title">Container images</p>
                 <ul style={{ margin: 0, paddingLeft: 18 }}>
                   {CORE_APPS.map((app) => (
-                    <li key={app} style={{ fontFamily: "var(--font-mono)", fontSize: 13, marginBottom: 4 }}>
+                    <li key={app} style={{ fontFamily: "var(--font-mono)", fontSize: 13, marginBottom: 4, overflowWrap: "anywhere" }}>
                       {APP_DEFAULTS[app].label}: {resolveAppImagePreview(app, getAppImageCfg(spec, app))}
                     </li>
                   ))}
