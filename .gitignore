@@ -8,3 +8,4 @@ app/ui/dist/
 app/ui/node_modules/
 *.tfstate
 *.tfstate.*
+*.log
